@@ -34,6 +34,7 @@ const forDirectionLint = declare((api, options, dirname) => {
 
         if (shouldUpdateOperator !== updateOperator) {
           const tmp = Error.stackTraceLimit;
+          // 因为错误堆栈太丑了，所以我们这里把它去掉
           Error.stackTraceLimit = 0;
           errors.push(
             path.get('update').buildCodeFrameError('The for direction error occurs', Error)
