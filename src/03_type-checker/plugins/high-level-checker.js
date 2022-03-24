@@ -1,13 +1,29 @@
 const { declare } = require('@babel/helper-plugin-utils');
 
-function resolveType(targetType, referenceTypesMap = {}) {
+function typeEval(node, params) {
+  let checkType;
+  // 如果是泛型，根据传入的参数取值
+  if (node.checkType.type === 'TSTypeReference') {
+    checkType = params[node.checkType.typeName.name];
+  } else {
+    // 否则直接取字面量的值
+    checkType = resolveType(node.checkType);
+  }
+  const extendsType = resolveType(node.extendsType);
+  if (checkType === extendsType || checkType instanceof extendsType) {
+    return resolveType(node.trueType);
+  } else {
+    return resolveType(node.falseType);
+  }
+}
+
+function resolveType(targetType, referenceTypesMap = {}, scope) {
   const tsTypeAnnotationMap = {
     TSStringKeyword: 'string',
     TSNumberKeyword: 'number',
   };
   switch (targetType.type) {
     case 'TSTypeAnnotation':
-      // 如果参数是泛型，根据传入的参数取值
       if (targetType.typeAnnotation.type === 'TSTypeReference') {
         return referenceTypesMap[targetType.typeAnnotation.typeName.name];
       }
@@ -18,6 +34,18 @@ function resolveType(targetType, referenceTypesMap = {}) {
       return 'string';
     case 'TSNumberKeyword':
       return 'number';
+    case 'TSTypeReference':
+      const typeAlias = scope.getData(targetType.typeName.name);
+      const paramTypes = targetType.typeParameters.params.map((item) => {
+        return resolveType(item);
+      });
+      const params = typeAlias.paramNames.reduce((obj, name, index) => {
+        obj[name] = paramTypes[index];
+        return obj;
+      }, {});
+      return typeEval(typeAlias.body, params);
+    case 'TSLiteralType':
+      return targetType.literal.value;
   }
 }
 
@@ -28,7 +56,7 @@ function noStackTraceWrapper(cb) {
   Error.stackTraceLimit = tmp;
 }
 
-const genericChecker = declare((api, options, dirname) => {
+const HighLevelChecker = declare((api, options, dirname) => {
   api.assertVersion(7);
 
   return {
@@ -36,24 +64,31 @@ const genericChecker = declare((api, options, dirname) => {
       file.set('errors', []);
     },
     visitor: {
+      TSTypeAliasDeclaration(path) {
+        path.scope.setData(path.get('id').toString(), {
+          paramNames: path.node.typeParameters.params.map((item) => {
+            return item.name;
+          }),
+          body: path.getTypeAnnotation(),
+        });
+        path.scope.setData(path.get('params'));
+      },
       CallExpression(path, state) {
         const errors = state.file.get('errors');
-        // 参数的真实类型
         const realTypes = path.node.typeParameters.params.map((item) => {
-          return resolveType(item);
+          return resolveType(item, {}, path.scope);
         });
-        // 实参的类型
         const argumentsTypes = path.get('arguments').map((item) => {
           return resolveType(item.getTypeAnnotation());
         });
         const calleeName = path.get('callee').toString();
-        // 根据函数名来查找函数声明
         const functionDeclarePath = path.scope.getBinding(calleeName).path;
         const realTypeMap = {};
-        // 把类型参数的值赋给函数声明语句的泛型参数
-        functionDeclarePath.node.typeParameters.params.forEach((item, index) => {
-          realTypeMap[item.name] = realTypes[index];
-        });
+        functionDeclarePath.node.typeParameters.params.forEach(
+          (item, index) => {
+            realTypeMap[item.name] = realTypes[index];
+          }
+        );
         const declareParamsTypes = functionDeclarePath
           .get('params')
           .map((item) => {
@@ -82,4 +117,4 @@ const genericChecker = declare((api, options, dirname) => {
   };
 });
 
-module.exports = genericChecker;
+module.exports = HighLevelChecker;
