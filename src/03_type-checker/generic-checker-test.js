@@ -1,12 +1,12 @@
 const { transformFromAstSync } = require('@babel/core');
 const parser = require('@babel/parser');
-const funcCalleeCheckerPlugin = require('./plugins/func-callee-checker');
+const genericCheckerPlugin = require('./plugins/generic-checker');
 
 const sourceCode = `
-  function add(a: number, b: number): number{
+  function add<T>(a: T, b: T) {
     return a + b;
   }
-  add(1, '2');
+  add<number>(1, '2');
 `;
 
 const ast = parser.parse(sourceCode, {
@@ -17,7 +17,7 @@ const ast = parser.parse(sourceCode, {
 const { code } = transformFromAstSync(ast, sourceCode, {
   plugins: [
     [
-      funcCalleeCheckerPlugin,
+      genericCheckerPlugin,
       {
         fix: true,
       },
@@ -25,5 +25,3 @@ const { code } = transformFromAstSync(ast, sourceCode, {
   ],
   comments: true,
 });
-
-// console.log(code);
